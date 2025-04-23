@@ -4,24 +4,15 @@ from pydantic import BaseModel
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from crud import get_user
+from fastapi.middleware.cors import CORSMiddleware
+
+
 
 # Constants
 SECRET_KEY = "9f3cce62b346702d8c37ef9b25a287a0e4161680e4a41ec6cac1d3c57e426f21"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
-
-# Database Simulation
-db = {
-    'biswaman': {
-        "username": "biswaman",
-        "full_name": "Biswadip Mandal",
-        "email": "biswadipmandal99@gmail.com",
-        "hashed_password": "",  # To be set later
-        "disabled": False
-    }
-}
-
-
 
 # Pydantic Models
 class Token(BaseModel):
@@ -47,23 +38,28 @@ oauth_2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 # App
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins= ["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Utility Functions
-def verify_password(plain_password, hashed_password):
+async def verify_password(plain_password, hashed_password):
     return passwd_context.verify(plain_password, hashed_password)
 
-def get_hash_passwd(password):
+async def get_hashed_password(password):
     return passwd_context.hash(password)
 
-def get_user(db, username: str):
-    if username in db:
-        user_data = db[username]
-        return UserInDb(**user_data)
+
     
-def authenticate_user(db, username: str, password: str):
-    user = get_user(db, username)
+async def authenticate_user(username: str, password: str):
+    user = await get_user(username)
     if not user:
         return False
-    if not verify_password(password, user.hashed_password):
+    if not await verify_password(password, user.hashed_password):
         return False
     return user
 
@@ -91,16 +87,16 @@ async def get_current_user(token: str = Depends(oauth_2_scheme)):
         token_data = TokenData(username=username)
     except JWTError:
         raise credentials_exception
-    user = get_user(db, username=token_data.username)
+    user = get_user(username=token_data.username)
     if user is None:
         raise credentials_exception
     return user
-db["biswaman"]["hashed_password"] = get_hash_passwd("biswaman")
+
 
 # Routes
 @app.post("/token", response_model=Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = authenticate_user(db, form_data.username, form_data.password)
+    user = await authenticate_user(form_data.username, form_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
